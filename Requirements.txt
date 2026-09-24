@@ -1,0 +1,214 @@
+# Mini Zefr Brand Safety Data Pipeline
+
+## 1. Goal
+
+Build an end-to-end data pipeline that ingests synthetic social-media content, simulates Zefr's AI brand safety classification, loads it into Snowflake using bulk data engineering best practices, transforms it with dbt, and orchestrates the flow with Apache Airflow.
+
+The primary goal is to gain hands-on practice with:
+* **Python** (Data validation, mock AI inference enrichment, staging & bulk loading)
+* **Snowflake** (Cloud data warehousing, file stages, and bulk `COPY INTO`)
+* **dbt** (Multi-layer modeling: Staging → Marts, schema testing, and metrics)
+* **Airflow** (DAG orchestration, task dependencies, retries, and idempotency)
+* **SQL** (Analytical querying on brand safety metrics)
+
+This is a learning project designed to directly demonstrate skills relevant to Zefr's data engineering stack and business domain.
+
+---
+
+# 2. End-to-End Pipeline Architecture
+
+```text
+Synthetic Social Content (JSON)
+           ↓
+Python Validation & Mock AI Inference (GARM classification & scoring)
+           ↓
+Snowflake Stage & Bulk Load (COPY INTO RAW.CONTENT_EVENTS)
+           ↓
+dbt Transformations (stg_content_events → fct_platform_brand_safety)
+           ↓
+dbt Tests (Data quality & schema checks)
+           ↓
+Final Analytics & Brand Safety Queries
+```
+
+Airflow orchestrates the pipeline:
+
+```text
+Airflow DAG
+   │
+   ├── Task 1: Ingest, Validate, Enrich & Stage Data (Python)
+   │
+   ├── Task 2: Run dbt Transformations (stg & marts)
+   │
+   └── Task 3: Run dbt Data Quality Tests
+```
+
+---
+
+# 3. Source Data & Domain Context (Zefr / GARM Taxonomy)
+
+Generate approximately **1,000–5,000 synthetic social media records** representing video metadata from platforms like YouTube, TikTok, and Instagram.
+
+### Base Record Schema:
+```json
+{
+  "content_id": "yt_10042",
+  "creator_id": "creator_892",
+  "platform": "youtube",
+  "upload_timestamp": "2026-09-20T14:30:00Z",
+  "video_title": "Top 10 Minecraft speedrun tricks",
+  "views": 15000,
+  "likes": 1200,
+  "comments": 140
+}
+```
+
+### Intentionally Bad Records to Test Validation:
+Include roughly 3–5% malformed records to exercise your error handling:
+* Missing `content_id` or `platform`
+* Negative or non-numeric `views`
+* Malformed `upload_timestamp`
+* Negative `likes` or `comments`
+
+---
+
+# 4. Python Layer: Validation, Mock AI Inference & Staging
+
+Write a Python script that performs three distinct steps:
+
+### 1. Validation & Quarantine
+* Read the JSON file and validate records against expected types and constraints.
+* Log basic statistics:
+  ```text
+  Records received: 2500
+  Valid records:    2410
+  Rejected records: 90
+  ```
+* Separate rejected records into a quarantine log/file with error reasons.
+
+### 2. Mock AI Inference & Enrichment (Simulating Zefr's Classifier)
+For each valid record, simulate a batch inference scoring function that assigns:
+* `garm_category`: e.g., `'Safe'`, `'Hate Speech'`, `'Profanity'`, `'Adult Content'`, `'Misinformation'`
+* `brand_suitability_risk`: `'Low'`, `'Medium'`, `'High'`
+* `model_confidence_score`: Float between `0.0` and `1.0`
+
+### 3. Snowflake Bulk Staging (DE Best Practice)
+* **Do NOT use row-by-row `INSERT INTO` statements.**
+* Write the validated, enriched records to a clean local file (JSON or Parquet).
+* Upload the file to a Snowflake stage (`PUT` command or Snowflake internal stage `@STAGE_SOCIAL_CONTENT`).
+* Execute a native Snowflake **`COPY INTO`** command to bulk load the data into the raw table.
+
+---
+
+# 5. Snowflake Layer: Raw Storage & Staging
+
+Set up a Snowflake database, schema, stage, and raw table:
+* Database: `ZEFR_DEV`
+* Schema: `RAW`
+* Stage: `RAW.STAGE_SOCIAL_CONTENT`
+* Target Table: `RAW.CONTENT_EVENTS`
+
+### Raw Table Schema:
+* `content_id` (VARCHAR)
+* `creator_id` (VARCHAR)
+* `platform` (VARCHAR)
+* `upload_timestamp` (TIMESTAMP_NTZ)
+* `views` (INTEGER)
+* `likes` (INTEGER)
+* `comments` (INTEGER)
+* `garm_category` (VARCHAR)
+* `brand_suitability_risk` (VARCHAR)
+* `model_confidence_score` (FLOAT)
+* `ingested_at` (TIMESTAMP_NTZ)
+
+---
+
+# 6. dbt Layer: Transformations & Data Quality
+
+Structure your dbt project using modern multi-layered modeling:
+
+### 1. Staging Layer (`models/staging/stg_content_events.sql`)
+* Clean and standardize column names.
+* Explicitly cast data types.
+* Filter out invalid records or null timestamps.
+* Materialize as a `view`.
+
+### 2. Marts Layer (`models/marts/fct_platform_brand_safety.sql`)
+Aggregate data to answer core business questions:
+* Dimension: `platform`
+* Metrics:
+  * `total_videos`: Total count of evaluated content
+  * `total_views`: Sum of views
+  * `total_safe_views`: Sum of views where `brand_suitability_risk = 'Low'`
+  * `brand_suitability_rate`: `(total_safe_views / total_views) * 100` (percentage of views suitable for advertising)
+  * `high_risk_video_count`: Count of videos classified as `High` risk
+  * `avg_engagement_rate`: Average of `(likes + comments) / views`
+* Materialize as a `table`.
+
+### 3. dbt Tests (`models/schema.yml`)
+Add standard schema tests:
+* `content_id`: `unique`, `not_null` (staging)
+* `platform`: `not_null`, `accepted_values` (`['youtube', 'tiktok', 'instagram']`)
+* `brand_suitability_risk`: `accepted_values` (`['Low', 'Medium', 'High']`)
+* `brand_suitability_rate`: Test or assertion that rate is between 0 and 100
+
+---
+
+# 7. Airflow Layer: Orchestration & Idempotency
+
+Create an Airflow DAG (`zefr_brand_safety_pipeline.py`) that coordinates the run.
+
+### DAG Requirements:
+* Tasks:
+  1. `ingest_validate_and_stage`: Runs the Python ingestion and Snowflake `COPY INTO`.
+  2. `dbt_run`: Executes `dbt run --models staging marts`.
+  3. `dbt_test`: Executes `dbt test`.
+* Dependencies: `ingest_validate_and_stage >> dbt_run >> dbt_test`
+* Retry logic: At least 1 automatic retry on failure with a short delay.
+* Schedule: Daily or manually triggerable.
+* **Idempotency**: Re-running the DAG for the same batch/date should not create duplicate records in your raw table (e.g. use partition overwrite, temporary staging truncation, or deduplication in dbt staging).
+
+---
+
+# 8. Analytical Queries (Answering Zefr Business Questions)
+
+Once the pipeline runs, write SQL queries to answer:
+1. **Brand Suitability by Platform:** Which platform has the highest and lowest Brand Suitability Rate?
+2. **Monetizable Impressions:** How many total views were classified as safe for ad placement across each platform?
+3. **High-Risk Analysis:** Which GARM category is responsible for the highest proportion of high-risk content?
+
+---
+
+# 9. Interview Talking Points & Architecture Recap
+
+When discussing this project in interviews, highlight:
+* **Why Snowflake `COPY INTO` instead of `INSERT`:** Bulk columnar loading via staging is performant, cost-effective, and industry-standard for data engineering scale.
+* **Why dbt for Transformations:** Separates ingestion from business logic, enables version-controlled SQL, automated documentation, and CI/CD testing.
+* **Airflow Idempotency:** How you ensured re-running a failed DAG run doesn't corrupt or duplicate warehouse data.
+* **Domain Alignment:** How you modeled GARM suitability standards, brand suitability rates, and mock AI inference directly reflecting Zefr's product mission.
+
+---
+
+# 10. Explicitly Out of Scope (Keep Scope Controlled)
+
+To avoid getting bogged down in infrastructure, keep these out of scope:
+* Distributed clusters (Kafka, Spark)
+* Cloud infrastructure-as-code (Terraform)
+* Complex container orchestrators (Kubernetes)
+* Production CI/CD pipelines
+* Full frontend dashboards (terminal/CLI and SQL output are sufficient)
+
+---
+
+# 11. Completion Checklist
+
+- [ ] Synthetic data generator creates realistic video metadata with intentional anomalies.
+- [ ] Python script validates data and logs clean vs rejected counts.
+- [ ] Python mock inference enriches records with GARM category, risk tier, and confidence score.
+- [ ] Python script stages clean data and executes Snowflake `COPY INTO`.
+- [ ] Raw table in Snowflake is queryable.
+- [ ] dbt staging model cleans and casts raw data.
+- [ ] dbt mart aggregates brand suitability rate and engagement metrics.
+- [ ] dbt tests pass (`unique`, `not_null`, `accepted_values`).
+- [ ] Airflow DAG orchestrates the pipeline end-to-end with retries.
+- [ ] You can explain what each component does and why you made each architectural choice.
