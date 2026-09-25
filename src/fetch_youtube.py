@@ -25,8 +25,15 @@ def get_channel_details(youtube, handle):
     )
     response = request.execute()
 
-    print(response)
-
+    items = response.get("items", [])
+    if not items:
+        return None
+    channel = items[0]
+    return {
+        "channel_id": channel["id"],
+        "channel_title": channel["snippet"]["title"],
+        "uploads_playlist_id": channel["contentDetails"]["relatedPlaylists"]["uploads"]
+    }
 
 def get_recent_video_ids(youtube, uploads_playlist_id, max_results=10):
     """Calls playlistItems().list(playlistId=uploads_playlist_id, 
@@ -39,6 +46,3 @@ def get_video_snapshots(youtube, video_ids, channel_info):
     """Calls videos().list(id=",".join(video_ids), part="snippet,statistics").
         Returns clean, structured dictionary objects representing each video snapshot."""
     pass
-
-
-get_channel_details(youtube, '@mkbhd')
