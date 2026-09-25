@@ -40,7 +40,17 @@ def get_recent_video_ids(youtube, uploads_playlist_id, max_results=10):
                                     maxResults=max_results, 
                                     part="contentDetails").
         Extracts and returns a list of video ID strings: ['dQw4w9WgXcQ', ...]."""
-    pass
+
+    request = youtube.playlistItems().list(
+        part="contentDetails",
+        playlistId=uploads_playlist_id,
+        maxResults=max_results
+    )
+
+    response = request.execute()
+    items = response.get("items", [])
+    return [item["contentDetails"]["videoId"] for item in items]
+
 
 def get_video_snapshots(youtube, video_ids, channel_info):
     """Calls videos().list(id=",".join(video_ids), part="snippet,statistics").
