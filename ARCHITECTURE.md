@@ -229,7 +229,7 @@ Aggregates performance benchmarks per channel:
 
 ## 10. Step-by-Step Implementation Roadmap
 
-- [ ] **Phase 1: YouTube API Ingestion**
+- [X] **Phase 1: YouTube API Ingestion**
   - Set up free YouTube Data API key.
   - Write Python script to resolve a channel handle and fetch the latest 10 video stats.
 - [ ] **Phase 2: Snowflake Warehouse Setup**
