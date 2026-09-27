@@ -17,6 +17,15 @@ def get_snowflake_connection():
     )
     return conn
 
+def save_to_jsonl(snapshots, destination_file_path):
+    pass
+
+def stage_file(conn, file_path, stage_name):
+    pass
+
+def copy_into_table(conn, target_table, stage_name):
+    pass
+
 if __name__ == "__main__":
     print("Testing Snowflake connection...")
     try:
