@@ -47,7 +47,7 @@ def stage_file(conn, file_path, stage_name):
     target_stage = stage_name if stage_name.startswith("@") else f"@{stage_name}"
 
     with conn.cursor() as cursor:
-        cursor.execute(f"PUT file://{abs_path} {stage_name} AUTO_COMPRESS=TRUE OVERWRITE=TRUE;")
+        cursor.execute(f"PUT file://{abs_path} {target_stage} AUTO_COMPRESS=TRUE OVERWRITE=TRUE;")
 
 def copy_into_table(conn, target_table, stage_name):
     """Loads staged JSON data from an internal stage into a Snowflake table.
@@ -57,7 +57,48 @@ def copy_into_table(conn, target_table, stage_name):
         target_table (str): Target table name (e.g. 'RAW.VIDEO_SNAPSHOTS').
         stage_name (str): Source stage containing the data files.
     """
-    pass
+
+    # Ensure stage_name starts with @
+    target_stage = stage_name if stage_name.startswith("@") else f"@{stage_name}"
+
+    query = f"""
+    COPY INTO {target_table} (
+        snapshot_id,
+        video_id,
+        channel_id,
+        channel_title,
+        video_title,
+        published_at,
+        view_count,
+        like_count,
+        comment_count,
+        extracted_at
+    )
+        FROM (
+           SELECT
+               $1:snapshot_id::VARCHAR,
+               $1:video_id::VARCHAR,
+               $1:channel_id::VARCHAR,
+               $1:channel_title::VARCHAR,
+               $1:video_title::VARCHAR,
+               $1:published_at::TIMESTAMP_NTZ,
+               $1:view_count::INTEGER,
+               $1:like_count::INTEGER,
+               $1:comment_count::INTEGER,
+               $1:extracted_at::TIMESTAMP_NTZ
+            FROM {target_stage}
+        )
+        
+        FILE_FORMAT = (FORMAT_NAME = 'RAW.JSON_FORMAT')
+        ON_ERROR = 'CONTINUE';
+    """
+
+    with conn.cursor() as cursor:
+        cursor.execute(query)
+        results = cursor.fetchall()
+        for row in results:
+            print(f"File: {row[0]} | Status: {row[1]} | Rows Loaded: {row[3]}")
+
 
 if __name__ == "__main__":
     print("Testing Snowflake connection...")
