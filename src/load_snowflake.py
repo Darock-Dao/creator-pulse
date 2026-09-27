@@ -19,12 +19,12 @@ def get_snowflake_connection():
     return conn
 
 def save_to_jsonl(snapshots, destination_file_path):
-    """Input: A list of snapshot dictionaries 
-                and a destination file path (e.g., data/staged/snapshots.jsonl).
+    """Writes a list of snapshot dictionaries to a JSON Lines (.jsonl) file.
 
-        Job: Iterate through the dictionaries and write
-            each one as a single JSON line using json.dumps(record) + '\n'."""
-
+    Args:
+        snapshots (list[dict]): List of extracted video snapshot records.
+        destination_file_path (str): Destination path for the .jsonl file.
+    """
     directory = os.path.dirname(destination_file_path)
     if directory:
         os.makedirs(directory, exist_ok=True)
@@ -34,21 +34,29 @@ def save_to_jsonl(snapshots, destination_file_path):
             f.write(json.dumps(snapshot) + "\n")
 
 def stage_file(conn, file_path, stage_name):
-    """Input: The active Snowflake connection/cursor, 
-        the local .jsonl file path, and the stage name (@RAW.STAGE_YOUTUBE).
+    """Uploads a local .jsonl file to a Snowflake internal stage using the PUT command.
 
-        Job: Execute the Snowflake PUT file:///absolute/path/to/file.jsonl 
-        @RAW.STAGE_YOUTUBE AUTO_COMPRESS=TRUE; command to push the file to the cloud."""
-    pass
+    Args:
+        conn: Active Snowflake connection object.
+        file_path (str): Path to the local .jsonl file.
+        stage_name (str): Target Snowflake stage (e.g. '@RAW.STAGE_YOUTUBE').
+    """
+    abs_path = os.path.abspath(file_path)
+
+    # Ensure stage_name starts with @
+    target_stage = stage_name if stage_name.startswith("@") else f"@{stage_name}"
+
+    with conn.cursor() as cursor:
+        cursor.execute(f"PUT file://{abs_path} {stage_name} AUTO_COMPRESS=TRUE OVERWRITE=TRUE;")
 
 def copy_into_table(conn, target_table, stage_name):
-    """Input: The active Snowflake connection/cursor, 
-            the target table (RAW.VIDEO_SNAPSHOTS), 
-            and the stage name (@RAW.STAGE_YOUTUBE).
+    """Loads staged JSON data from an internal stage into a Snowflake table.
 
-        Job: Execute the COPY INTO RAW.VIDEO_SNAPSHOTS 
-        (...) FROM @RAW.STAGE_YOUTUBE ... 
-        command to parse the JSON and populate the table columns."""
+    Args:
+        conn: Active Snowflake connection object.
+        target_table (str): Target table name (e.g. 'RAW.VIDEO_SNAPSHOTS').
+        stage_name (str): Source stage containing the data files.
+    """
     pass
 
 if __name__ == "__main__":
