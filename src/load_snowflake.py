@@ -1,7 +1,9 @@
+import googleapiclient
 import os
 import snowflake.connector
 from dotenv import load_dotenv
 import json
+import fetch_youtube
 
 load_dotenv()
 
@@ -99,8 +101,7 @@ def copy_into_table(conn, target_table, stage_name):
         for row in results:
             print(f"File: {row[0]} | Status: {row[1]} | Rows Loaded: {row[3]}")
 
-
-if __name__ == "__main__":
+def test_snowflake_connection():
     print("Testing Snowflake connection...")
     try:
         conn = get_snowflake_connection()
@@ -120,3 +121,27 @@ if __name__ == "__main__":
         conn.close()
     except Exception as e:
         print(f"\n❌ Connection failed: {e}")
+
+def test_bulk_data_loading():
+    api_key = os.getenv("YOUTUBE_API_KEY")
+    youtube = googleapiclient.discovery.build("youtube", "v3", developerKey=api_key)
+    snowflake_conn = get_snowflake_connection()
+
+    test_handle = "@mkbhd" #Marques Brownlee's handle
+    channel_info = fetch_youtube.get_channel_details(youtube, test_handle)
+    if channel_info:
+        uploads_id = channel_info["uploads_playlist_id"]
+        video_ids = fetch_youtube.get_recent_video_ids(youtube, uploads_id, max_results=5)
+
+    if channel_info and video_ids:
+        video_snapshots = fetch_youtube.get_video_snapshots(youtube, video_ids, channel_info)
+
+        save_to_jsonl(video_snapshots, "data/staged/snapshots.jsonl")
+        stage_file(snowflake_conn, "data/staged/snapshots.jsonl", "RAW.STAGE_YOUTUBE")
+        copy_into_table(snowflake_conn, "RAW.VIDEO_SNAPSHOTS", "RAW.STAGE_YOUTUBE")
+
+        print("\n🎉 Bulk load completed successfully!")
+        snowflake_conn.close()
+
+if __name__ == "__main__":
+    test_bulk_data_loading()
