@@ -85,8 +85,7 @@ def get_video_snapshots(youtube, video_ids, channel_info):
         )
     return formatted_items
 
-
-if __name__ == "__main__":
+def test_getting_snapshots():
     test_handle = "@mkbhd"
     print(f"1. Fetching channel details for {test_handle}...")
     channel_info = get_channel_details(youtube, test_handle)
@@ -102,3 +101,6 @@ if __name__ == "__main__":
     if channel_info and video_ids:
         video_snapshots = get_video_snapshots(youtube, video_ids, channel_info)
         print("Recent Video snaphots:", video_snapshots)
+
+if __name__ == "__main__":
+    pass

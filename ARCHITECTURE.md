@@ -232,9 +232,9 @@ Aggregates performance benchmarks per channel:
 - [X] **Phase 1: YouTube API Ingestion**
   - Set up free YouTube Data API key.
   - Write Python script to resolve a channel handle and fetch the latest 10 video stats.
-- [ ] **Phase 2: Snowflake Warehouse Setup**
+- [X] **Phase 2: Snowflake Warehouse Setup**
   - Create database, schema, internal stage, and raw tables (`WATCHLIST`, `VIDEO_SNAPSHOTS`).
-- [ ] **Phase 3: Python Bulk Loader**
+- [X] **Phase 3: Python Bulk Loader**
   - Implement staging and Snowflake `COPY INTO` logic.
 - [ ] **Phase 4: dbt Transformations**
   - Initialize dbt project with Snowflake connection.
