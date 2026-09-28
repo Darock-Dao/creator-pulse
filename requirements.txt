@@ -1,2 +1,4 @@
 google-api-python-client>=2.100.0
 python-dotenv>=1.0.0
+snowflake-connector-python>=3.0.0
+dbt-snowflake>=1.8.0
