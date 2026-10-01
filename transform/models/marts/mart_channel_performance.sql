@@ -21,4 +21,22 @@ latest_velocities AS
     QUALIFY ROW_NUMBER() OVER 
         (PARTITION BY video_id 
         ORDER BY extracted_at DESC) = 1
+),
+channel_summary AS
+(
+    SELECT
+        channel_id,
+        channel_title,
+        COUNT(DISTINCT video_id) AS total_tracked_videos,
+        SUM(view_count) AS total_views,
+        SUM(like_count) AS total_likes,
+        SUM(comment_count) AS total_comments,
+        ROUND((SUM(like_count) + SUM(comment_count)) / NULLIF(SUM(view_count), 0) * 100, 2) AS engagement_rate,
+        ROUND(MAX(hourly_velocity), 2) AS max_hourly_velocity,
+        ROUND(AVG(hourly_velocity), 2) AS avg_hourly_velocity,
+        MAX(extracted_at) AS latest_snapshot_at
+    FROM latest_velocities
+    GROUP BY channel_id, channel_title
 )
+
+SELECT * FROM channel_summary
