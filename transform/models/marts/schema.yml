@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: fct_video_velocity
+    description: "Fact table recording snapshot-over-snapshot video velocity and performance."
+    columns:
+      - name: snapshot_id
+        description: "Primary key (deterministic hash of video_id + extracted_at)."
+        data_tests:
+          - unique
+          - not_null
+
+      - name: video_id
+        description: "YouTube video ID."
+        data_tests:
+          - not_null
+
+      - name: channel_id
+        data_tests:
+          - not_null
+
+  - name: mart_channel_performance
+    description: "Channel-level aggregate KPIs for dashboard KPI cards and benchmarks."
+    columns:
+      - name: channel_id
+        description: "Primary key representing each unique tracked creator."
+        data_tests:
+          - unique
+          - not_null
+
+      - name: total_tracked_videos
+        data_tests:
+          - not_null
