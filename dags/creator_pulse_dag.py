@@ -1,10 +1,24 @@
 import os
 import sys
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+load_dotenv()
+
+# Add project root to sys.path so Airflow can find the 'src' directory
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+from src import fetch_youtube, load_snowflake
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
+
+TRANSFORM_DIR = os.path.join(PROJECT_ROOT, "transform")
+DBT_BIN = os.path.join(PROJECT_ROOT, ".venv", "bin", "dbt")
+
+bash_run_command=f"cd {TRANSFORM_DIR} && {DBT_BIN} run --profiles-dir ."
+bash_test_command=f"cd {TRANSFORM_DIR} && {DBT_BIN} test --profiles-dir ."
 
 with DAG (
     dag_id="creator_pulse_pipeline",
@@ -36,13 +50,12 @@ with DAG (
 
     dbt_run_task = BashOperator(
         task_id="run_dbt",
-        bash_command="cd /path/to/transform && ../.venv/bin/dbt run --profiles-dir .",
+        bash_command=bash_run_command,
     )
 
     dbt_test_task = BashOperator(
         task_id="test_dbt",
-        bash_command="cd /path/to/transform && ../.venv/bin/dbt run --profiles-dir .",
+        bash_command=bash_test_command
     )
 
     fetch_youtube_task >> load_snowflake_task >> dbt_run_task >> dbt_test_task
-
