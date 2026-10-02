@@ -7,7 +7,7 @@ from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 
 with DAG (
-    dag_id="my_pipeline_name",
+    dag_id="creator_pulse_pipeline",
     default_args = {
         "owner": "airflow",
         "depends_on_past": False,
@@ -23,4 +23,26 @@ with DAG (
     catchup=False,                          # DO NOT run missed runs from start_date
     tags=["production", "creator_pulse"],
 ) as dag:
-    pass
+
+    fetch_youtube_task = PythonOperator(
+        task_id="fetch_youtube_data",
+        python_callable=None,  # The Python function to call
+    )
+
+    load_snowflake_task = PythonOperator(
+        task_id="load_snowflake",
+        python_callable=None,  
+    )
+
+    dbt_run_task = BashOperator(
+        task_id="run_dbt",
+        bash_command="cd /path/to/transform && ../.venv/bin/dbt run --profiles-dir .",
+    )
+
+    dbt_test_task = BashOperator(
+        task_id="test_dbt",
+        bash_command="cd /path/to/transform && ../.venv/bin/dbt run --profiles-dir .",
+    )
+
+    fetch_youtube_task >> load_snowflake_task >> dbt_run_task >> dbt_test_task
+
