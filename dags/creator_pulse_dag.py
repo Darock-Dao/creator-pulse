@@ -40,12 +40,12 @@ with DAG (
 
     fetch_youtube_task = PythonOperator(
         task_id="fetch_youtube_data",
-        python_callable=None,  # The Python function to call
+        python_callable=fetch_youtube.run_fetch_pipeline,  # The Python function to call
     )
 
     load_snowflake_task = PythonOperator(
         task_id="load_snowflake",
-        python_callable=None,  
+        python_callable=load_snowflake.run_load_pipeline,  
     )
 
     dbt_run_task = BashOperator(
