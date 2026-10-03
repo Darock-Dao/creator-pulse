@@ -32,7 +32,7 @@ with DAG (
     description="Entire data pipeline for extracting YouTube data,"
                 "copying to Snowflake,"
                 "running DBT transformations and tests.",
-    schedule_interval="0 */6 * * *",       # Cron expression (every 6 hours)
+    schedule="0 */6 * * *",       # Cron expression (every 6 hours)
     start_date=datetime(2026, 1, 1),        # Fixed start date in the past
     catchup=False,                          # DO NOT run missed runs from start_date
     tags=["production", "creator_pulse"],
