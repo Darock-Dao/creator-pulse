@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import googleapiclient.discovery
 import googleapiclient.errors
 import hashlib
+import json
 
 load_dotenv()
 
@@ -84,6 +85,32 @@ def get_video_snapshots(youtube, video_ids, channel_info):
             }
         )
     return formatted_items
+
+def save_to_jsonl(snapshots, destination_file_path):
+    """Writes a list of snapshot dictionaries to a JSON Lines (.jsonl) file.
+
+    Args:
+        snapshots (list[dict]): List of extracted video snapshot records.
+        destination_file_path (str): Destination path for the .jsonl file.
+    """
+    directory = os.path.dirname(destination_file_path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    with open(destination_file_path, "w", encoding="utf-8") as f:
+        for snapshot in snapshots:
+            f.write(json.dumps(snapshot) + "\n")
+
+def run_fetch_pipeline(handle="@mkbhd", destination_file="data/staged/snapshots.jsonl"):
+    channel_details = get_channel_details(youtube, handle)
+    if not channel_details:
+        raise ValueError(f"Could not resolve channel details for handle: {handle}")
+
+    recent_video_ids = get_recent_video_ids(youtube, channel_details["uploads_playlist_id"], max_results=5)
+    recent_video_snapshots = get_video_snapshots(youtube, recent_video_ids, channel_details)
+    
+    # Use destination_file parameter here:
+    save_to_jsonl(recent_video_snapshots, destination_file)
 
 def test_getting_snapshots():
     test_handle = "@mkbhd"

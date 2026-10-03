@@ -2,7 +2,6 @@ import googleapiclient
 import os
 import snowflake.connector
 from dotenv import load_dotenv
-import json
 import fetch_youtube
 
 load_dotenv()
@@ -19,21 +18,6 @@ def get_snowflake_connection():
         role=os.getenv("SNOWFLAKE_ROLE")
     )
     return conn
-
-def save_to_jsonl(snapshots, destination_file_path):
-    """Writes a list of snapshot dictionaries to a JSON Lines (.jsonl) file.
-
-    Args:
-        snapshots (list[dict]): List of extracted video snapshot records.
-        destination_file_path (str): Destination path for the .jsonl file.
-    """
-    directory = os.path.dirname(destination_file_path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-
-    with open(destination_file_path, "w", encoding="utf-8") as f:
-        for snapshot in snapshots:
-            f.write(json.dumps(snapshot) + "\n")
 
 def stage_file(conn, file_path, stage_name):
     """Uploads a local .jsonl file to a Snowflake internal stage using the PUT command.
@@ -101,6 +85,9 @@ def copy_into_table(conn, target_table, stage_name):
         for row in results:
             print(f"File: {row[0]} | Status: {row[1]} | Rows Loaded: {row[3]}")
 
+def run_load_pipeline(source_file):
+    pass
+
 def test_snowflake_connection():
     print("Testing Snowflake connection...")
     try:
@@ -136,7 +123,7 @@ def test_bulk_data_loading():
     if channel_info and video_ids:
         video_snapshots = fetch_youtube.get_video_snapshots(youtube, video_ids, channel_info)
 
-        save_to_jsonl(video_snapshots, "data/staged/snapshots.jsonl")
+        fetch_youtube.save_to_jsonl(video_snapshots, "data/staged/snapshots.jsonl")
         stage_file(snowflake_conn, "data/staged/snapshots.jsonl", "RAW.STAGE_YOUTUBE")
         copy_into_table(snowflake_conn, "RAW.VIDEO_SNAPSHOTS", "RAW.STAGE_YOUTUBE")
 
