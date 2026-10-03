@@ -13,3 +13,10 @@ data/
 **/logs/
 **/dbt_packages/
 **/.user.yml
+
+# Airflow local artifacts
+airflow.db
+airflow.cfg
+webserver_config.py
+*.pid
+
