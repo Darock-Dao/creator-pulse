@@ -36,12 +36,14 @@ st.markdown("""
         margin-bottom: 12px;
     }
     .stMetric label {
-        font-size: 0.9rem !important;
+        font-size: 0.82rem !important;
         color: #A0AEC0 !important;
+        white-space: nowrap !important;
     }
     .stMetric div[data-testid="stMetricValue"] {
-        font-size: 1.8rem !important;
+        font-size: 1.35rem !important;
         font-weight: 700 !important;
+        white-space: nowrap !important;
     }
     div[data-testid="stSidebar"] button[kind="secondary"] {
         padding: 2px 8px;
@@ -308,7 +310,7 @@ col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
     st.metric(
         label="Total Tracked Views",
-        value=f"{total_views:,.0f} views" if pd.notnull(total_views) else "0 views",
+        value=f"{total_views:,.0f}" if pd.notnull(total_views) else "0",
         help="Cumulative views across all tracked uploads."
     )
 
@@ -320,25 +322,25 @@ with col2:
     )
 
 with col3:
-    vel_display = f"{max_vel:,.0f} views/hr" if pd.notnull(max_vel) and max_vel > 0 else "Calibrating..."
+    vel_display = f"{max_vel:,.0f}" if pd.notnull(max_vel) and max_vel > 0 else "Calibrating..."
     st.metric(
-        label="Peak Velocity Observed",
+        label="Peak Velocity (views/hr)",
         value=vel_display,
         help="Fastest hourly view gain recorded across snapshot intervals (Δviews / Δhours)."
     )
 
 with col4:
-    avg_vel_display = f"{avg_vel:,.0f} views/hr" if pd.notnull(avg_vel) and avg_vel > 0 else "Calibrating..."
+    avg_vel_display = f"{avg_vel:,.0f}" if pd.notnull(avg_vel) and avg_vel > 0 else "Calibrating..."
     st.metric(
-        label="Avg Channel Velocity",
+        label="Avg Velocity (views/hr)",
         value=avg_vel_display,
         help="Average rate of view accumulation across all snapshot intervals (Δviews / Δhours)."
     )
 
 with col5:
     st.metric(
-        label="Active Tracked Videos",
-        value=f"{total_videos} videos",
+        label="Active Videos Tracked",
+        value=f"{total_videos}",
         help="Number of recent video uploads actively tracked."
     )
 
