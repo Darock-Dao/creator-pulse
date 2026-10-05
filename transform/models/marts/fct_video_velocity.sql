@@ -18,7 +18,7 @@ snapshots_with_lags AS(
         LAG(view_count) OVER 
             (PARTITION BY video_id 
             ORDER BY extracted_at) AS prev_view_count,
-        LAG(extracted_at) OVER 
+        LAG(extracted_at) OVER
             (PARTITION BY video_id 
             ORDER BY extracted_at) AS prev_extracted_at
     FROM snapshots
@@ -39,8 +39,8 @@ compute_velocities AS(
         extracted_at,
         loaded_at,
         view_count - COALESCE(prev_view_count, view_count) AS delta_views,
-        DATEDIFF('hour', prev_extracted_at, extracted_at) AS hours_between_snapshots,
-        (view_count - prev_view_count) / NULLIF(DATEDIFF('hour', prev_extracted_at, extracted_at), 0) AS hourly_velocity,
+        ROUND(DATEDIFF('second', prev_extracted_at, extracted_at) / 3600.0, 4) AS hours_between_snapshots,
+        ROUND((view_count - prev_view_count) / NULLIF(DATEDIFF('second', prev_extracted_at, extracted_at) / 3600.0, 0), 2) AS hourly_velocity,
         DATEDIFF('hour', published_at, extracted_at) AS video_age_hours
     FROM snapshots_with_lags
 )

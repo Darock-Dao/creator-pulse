@@ -236,11 +236,11 @@ Aggregates performance benchmarks per channel:
   - Create database, schema, internal stage, and raw tables (`WATCHLIST`, `VIDEO_SNAPSHOTS`).
 - [X] **Phase 3: Python Bulk Loader**
   - Implement staging and Snowflake `COPY INTO` logic.
-- [ ] **Phase 4: dbt Transformations**
+- [X] **Phase 4: dbt Transformations**
   - Initialize dbt project with Snowflake connection.
   - Build `stg_video_snapshots` and `fct_video_velocity` with `LAG()` window calculations.
   - Add schema tests and run `dbt test`.
-- [ ] **Phase 5: Airflow Orchestration**
+- [X] **Phase 5: Airflow Orchestration**
   - Build DAG with task dependencies, retries, and scheduling.
-- [ ] **Phase 6: Streamlit GUI**
+- [X] **Phase 6: Streamlit GUI**
   - Build the interactive web dashboard for channel input and velocity visualization.

@@ -43,6 +43,10 @@ st.markdown("""
         font-size: 1.8rem !important;
         font-weight: 700 !important;
     }
+    div[data-testid="stSidebar"] button[kind="secondary"] {
+        padding: 2px 8px;
+        font-size: 0.8rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -52,26 +56,31 @@ st.markdown("""
 # ---------------------------------------------------------
 @st.cache_data(ttl=30)
 def get_channel_metrics():
-    """Fetches channel-level summary KPIs from the analytics mart."""
+    """Fetches channel-level summary KPIs for active creators."""
     conn = load_snowflake.get_snowflake_connection()
     try:
         query = """
         SELECT 
-            channel_id,
-            channel_title,
-            total_tracked_videos,
-            total_views,
-            total_likes,
-            total_comments,
-            engagement_rate,
-            max_hourly_velocity,
-            avg_hourly_velocity,
-            latest_snapshot_at
-        FROM RAW.MART_CHANNEL_PERFORMANCE
-        ORDER BY total_views DESC;
+            m.channel_id,
+            m.channel_title,
+            w.channel_handle,
+            m.total_tracked_videos,
+            m.total_views,
+            m.total_likes,
+            m.total_comments,
+            m.engagement_rate,
+            m.max_hourly_velocity,
+            m.avg_hourly_velocity,
+            m.latest_snapshot_at
+        FROM RAW.MART_CHANNEL_PERFORMANCE m
+        INNER JOIN RAW.WATCHLIST w ON m.channel_id = w.channel_id
+        WHERE w.is_active = TRUE
+        ORDER BY m.total_views DESC;
         """
         df = pd.read_sql(query, conn)
         df.columns = [col.upper() for col in df.columns]
+        if not df.empty:
+            df["DISPLAY_NAME"] = df["CHANNEL_TITLE"] + " (" + df["CHANNEL_HANDLE"] + ")"
         return df
     finally:
         conn.close()
@@ -112,11 +121,12 @@ def get_video_velocities(channel_id=None):
 
 
 @st.cache_data(ttl=30)
-def get_watchlist():
-    """Fetches active creators from the Watchlist table."""
+def get_watchlist(active_only=True):
+    """Fetches creators from the Watchlist table."""
     conn = load_snowflake.get_snowflake_connection()
     try:
-        query = "SELECT channel_id, channel_handle, channel_title, added_at, is_active FROM RAW.WATCHLIST ORDER BY added_at DESC;"
+        where_clause = "WHERE is_active = TRUE" if active_only else ""
+        query = f"SELECT channel_id, channel_handle, channel_title, added_at, is_active FROM RAW.WATCHLIST {where_clause} ORDER BY added_at DESC;"
         df = pd.read_sql(query, conn)
         df.columns = [col.upper() for col in df.columns]
         return df
@@ -162,16 +172,27 @@ def add_channel_to_watchlist(handle):
     return channel_details
 
 
+def deactivate_channel(channel_id):
+    """Soft-deletes (deactivates) a creator in the Snowflake Watchlist."""
+    conn = load_snowflake.get_snowflake_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(f"UPDATE RAW.WATCHLIST SET is_active = FALSE WHERE channel_id = '{channel_id}';")
+        conn.commit()
+        cursor.close()
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------
 # Sidebar: Watchlist & Pipeline Controls
 # ---------------------------------------------------------
 with st.sidebar:
     st.title("⚡ CreatorPulse")
-    st.caption("Real-Time Social Velocity Pipeline")
     st.markdown("---")
     
-    st.subheader("📋 Watchlist Manager")
-    new_handle = st.text_input("Track New Creator", placeholder="@veritasium or @mkbhd")
+    st.subheader("📋 Track New Creator")
+    new_handle = st.text_input("YouTube Handle", placeholder="@mkbhd or @penguinz0")
     if st.button("➕ Add to Watchlist", use_container_width=True):
         if new_handle:
             clean_handle = new_handle.strip()
@@ -184,6 +205,19 @@ with st.sidebar:
                     # Ingest initial snapshot for the new creator
                     fetch_youtube.run_fetch_pipeline(handle=clean_handle)
                     load_snowflake.run_load_pipeline()
+                    
+                    # Run dbt to rebuild the analytics marts with the new creator
+                    with st.spinner("Rebuilding dbt marts..."):
+                        import subprocess
+                        dbt_bin = os.path.join(PROJECT_ROOT, ".venv", "bin", "dbt")
+                        transform_dir = os.path.join(PROJECT_ROOT, "transform")
+                        subprocess.run(
+                            [dbt_bin, "run", "--profiles-dir", "."],
+                            cwd=transform_dir,
+                            env=dict(os.environ),
+                            check=True
+                        )
+                    
                     st.cache_data.clear()
                     st.rerun()
                 except Exception as e:
@@ -192,33 +226,70 @@ with st.sidebar:
             st.warning("Please enter a valid channel handle.")
 
     st.markdown("---")
-    st.subheader("⚙️ Data Refresh")
-    if st.button("🔄 Refresh Dashboard Data", use_container_width=True):
+    st.subheader("👥 Active Watchlist")
+    watchlist_df = get_watchlist(active_only=True)
+    if not watchlist_df.empty:
+        for _, row in watchlist_df.iterrows():
+            c_info, c_btn = st.columns([4, 1])
+            c_info.markdown(f"**{row['CHANNEL_TITLE']}**  \n<span style='color: #718096; font-size: 0.85rem;'>{row['CHANNEL_HANDLE']}</span>", unsafe_allow_html=True)
+            if c_btn.button("✖", key=f"untrack_{row['CHANNEL_ID']}", help=f"Stop tracking {row['CHANNEL_TITLE']}"):
+                deactivate_channel(row['CHANNEL_ID'])
+                st.cache_data.clear()
+                st.rerun()
+    else:
+        st.caption("No creators currently active.")
+
+    st.markdown("---")
+    st.subheader("⚙️ Pipeline Controls")
+    
+    if st.button("🚀 Take Snapshot Now", use_container_width=True, help="Scrapes fresh metrics from YouTube for all active creators, stages to Snowflake, and runs dbt."):
+        with st.spinner("1/2 Fetching fresh snapshots from YouTube..."):
+            try:
+                import subprocess
+                active_watchlist = get_watchlist(active_only=True)
+                handles = active_watchlist["CHANNEL_HANDLE"].tolist() if not active_watchlist.empty else ["@mkbhd"]
+                for handle in handles:
+                    fetch_youtube.run_fetch_pipeline(handle=handle)
+                    load_snowflake.run_load_pipeline()
+
+                with st.spinner("2/2 Rebuilding dbt models & velocity tables..."):
+                    dbt_bin = os.path.join(PROJECT_ROOT, ".venv", "bin", "dbt")
+                    transform_dir = os.path.join(PROJECT_ROOT, "transform")
+                    subprocess.run(
+                        [dbt_bin, "run", "--profiles-dir", "."],
+                        cwd=transform_dir,
+                        env=dict(os.environ),
+                        check=True
+                    )
+                
+                st.success("🎉 New snapshot captured and velocity models updated!")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Pipeline execution failed: {e}")
+
+    if st.button("🔄 Refresh View Only", use_container_width=True, help="Re-queries Snowflake without scraping YouTube."):
         st.cache_data.clear()
         st.rerun()
         
-    st.markdown("---")
-    st.caption("Connected to **Snowflake** (RAW schema) and transformed with **dbt**.")
-
 
 # ---------------------------------------------------------
 # Main Dashboard View
 # ---------------------------------------------------------
-st.title("📊 Creator Velocity & Traction Intelligence")
-st.markdown("Live social media velocity metrics calculated via **Snowflake window functions** and automated with **Airflow**.")
+st.title("📊 CreatorPulse Dashboard")
 
 channel_df = get_channel_metrics()
 
 if channel_df.empty:
-    st.info("No creator data found in `RAW.MART_CHANNEL_PERFORMANCE`. Run your Airflow DAG or ingestion pipeline to populate data!")
+    st.info("No active creators found in your Watchlist. Add a channel in the sidebar to start tracking!")
     st.stop()
 
-# Creator Selection Dropdown
-creator_list = channel_df["CHANNEL_TITLE"].tolist()
-selected_creator = st.selectbox("Select Creator to Inspect:", options=creator_list)
+# Creator Selection Dropdown with Name + Handle
+creator_display_list = channel_df["DISPLAY_NAME"].tolist()
+selected_display = st.selectbox("Select Creator to Inspect:", options=creator_display_list)
 
 # Filter channel metrics
-current_creator_row = channel_df[channel_df["CHANNEL_TITLE"] == selected_creator].iloc[0]
+current_creator_row = channel_df[channel_df["DISPLAY_NAME"] == selected_display].iloc[0]
 channel_id = current_creator_row["CHANNEL_ID"]
 
 # ---------------------------------------------------------
@@ -273,7 +344,6 @@ with tab1:
     st.caption("Tracks cumulative view count trajectory across consecutive snapshot intervals.")
     
     if not velocity_df.empty:
-        # Altair multi-line interactive chart
         chart = alt.Chart(velocity_df).mark_line(point=True).encode(
             x=alt.X("EXTRACTED_AT:T", title="Snapshot Extracted Timestamp"),
             y=alt.Y("VIEW_COUNT:Q", title="Total Views"),
@@ -289,7 +359,6 @@ with tab1:
 
 with tab2:
     st.subheader("Current Video Velocity (Views / Hour)")
-    st.caption("Derived using `LAG(view_count)` partitioned by `video_id` in dbt.")
     
     # Filter to latest snapshot for each video to show current velocity
     latest_velocities = velocity_df.sort_values("EXTRACTED_AT").groupby("VIDEO_ID").last().reset_index()
@@ -310,7 +379,6 @@ with tab2:
 
 with tab3:
     st.subheader("Raw Snapshot & Mart Data (Auditing Layer)")
-    st.caption("Live records from `RAW.FCT_VIDEO_VELOCITY` in Snowflake.")
     
     if not velocity_df.empty:
         display_cols = [
