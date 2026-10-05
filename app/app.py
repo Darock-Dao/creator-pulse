@@ -103,6 +103,7 @@ def get_video_velocities(channel_id=None):
             view_count,
             prev_view_count,
             delta_views,
+            hours_between_snapshots,
             hourly_velocity,
             video_age_hours,
             extracted_at
@@ -298,22 +299,24 @@ channel_id = current_creator_row["CHANNEL_ID"]
 total_views = current_creator_row["TOTAL_VIEWS"]
 engagement_rate = current_creator_row["ENGAGEMENT_RATE"]
 max_vel = current_creator_row["MAX_HOURLY_VELOCITY"]
+avg_vel = current_creator_row["AVG_HOURLY_VELOCITY"]
 total_videos = current_creator_row["TOTAL_TRACKED_VIDEOS"]
 last_updated = current_creator_row["LATEST_SNAPSHOT_AT"]
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     st.metric(
         label="Total Tracked Views",
-        value=f"{total_views:,.0f}" if pd.notnull(total_views) else "0"
+        value=f"{total_views:,.0f} views" if pd.notnull(total_views) else "0 views",
+        help="Cumulative views across all tracked uploads."
     )
 
 with col2:
     st.metric(
-        label="Audience Engagement Rate",
+        label="Audience Engagement",
         value=f"{engagement_rate:.2f}%" if pd.notnull(engagement_rate) else "0.00%",
-        help="(Total Likes + Total Comments) / Total Views * 100"
+        help="Ratio of interactions: (Total Likes + Total Comments) / Total Views * 100"
     )
 
 with col3:
@@ -321,13 +324,22 @@ with col3:
     st.metric(
         label="Peak Velocity Observed",
         value=vel_display,
-        help="Fastest hourly view gain recorded across snapshots."
+        help="Fastest hourly view gain recorded across snapshot intervals (Δviews / Δhours)."
     )
 
 with col4:
+    avg_vel_display = f"{avg_vel:,.0f} views/hr" if pd.notnull(avg_vel) and avg_vel > 0 else "Calibrating..."
+    st.metric(
+        label="Avg Channel Velocity",
+        value=avg_vel_display,
+        help="Average rate of view accumulation across all snapshot intervals (Δviews / Δhours)."
+    )
+
+with col5:
     st.metric(
         label="Active Tracked Videos",
-        value=f"{total_videos}"
+        value=f"{total_videos} videos",
+        help="Number of recent video uploads actively tracked."
     )
 
 st.markdown("---")
@@ -341,14 +353,20 @@ tab1, tab2, tab3 = st.tabs(["📈 Video Growth Curves", "⚡ Hourly Velocity Spi
 
 with tab1:
     st.subheader("Time-Series Video Growth Curves")
-    st.caption("Tracks cumulative view count trajectory across consecutive snapshot intervals.")
+    st.caption("Cumulative view count trajectory across consecutive snapshot intervals.")
     
     if not velocity_df.empty:
         chart = alt.Chart(velocity_df).mark_line(point=True).encode(
-            x=alt.X("EXTRACTED_AT:T", title="Snapshot Extracted Timestamp"),
-            y=alt.Y("VIEW_COUNT:Q", title="Total Views"),
+            x=alt.X("EXTRACTED_AT:T", title="Snapshot Time (UTC)"),
+            y=alt.Y("VIEW_COUNT:Q", title="Total Views (cumulative)"),
             color=alt.Color("VIDEO_TITLE:N", legend=alt.Legend(title="Video Title", orient="bottom")),
-            tooltip=["VIDEO_TITLE:N", "VIEW_COUNT:Q", "DELTA_VIEWS:Q", "EXTRACTED_AT:T"]
+            tooltip=[
+                alt.Tooltip("VIDEO_TITLE:N", title="Video"),
+                alt.Tooltip("VIEW_COUNT:Q", title="Total Views", format=","),
+                alt.Tooltip("DELTA_VIEWS:Q", title="Δ Views Gained", format="+,"),
+                alt.Tooltip("HOURLY_VELOCITY:Q", title="Hourly Velocity (views/hr)", format=",.1f"),
+                alt.Tooltip("EXTRACTED_AT:T", title="Snapshot Time (UTC)", format="%Y-%m-%d %H:%M")
+            ]
         ).properties(
             height=420
         ).interactive()
@@ -359,6 +377,7 @@ with tab1:
 
 with tab2:
     st.subheader("Current Video Velocity (Views / Hour)")
+    st.caption("Real-time view accumulation rate (Δviews / Δhours) based on the latest snapshot interval.")
     
     # Filter to latest snapshot for each video to show current velocity
     latest_velocities = velocity_df.sort_values("EXTRACTED_AT").groupby("VIDEO_ID").last().reset_index()
@@ -366,10 +385,16 @@ with tab2:
     
     if not valid_velocities.empty:
         bar_chart = alt.Chart(valid_velocities).mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6).encode(
-            x=alt.X("HOURLY_VELOCITY:Q", title="Hourly Velocity (Views/Hour)"),
+            x=alt.X("HOURLY_VELOCITY:Q", title="Hourly Velocity (views / hour)"),
             y=alt.Y("VIDEO_TITLE:N", sort="-x", title="Video Title"),
             color=alt.Color("HOURLY_VELOCITY:Q", scale=alt.Scale(scheme="goldorange"), legend=None),
-            tooltip=["VIDEO_TITLE:N", "HOURLY_VELOCITY:Q", "DELTA_VIEWS:Q", "VIEW_COUNT:Q"]
+            tooltip=[
+                alt.Tooltip("VIDEO_TITLE:N", title="Video"),
+                alt.Tooltip("HOURLY_VELOCITY:Q", title="Hourly Velocity (views/hr)", format=",.1f"),
+                alt.Tooltip("DELTA_VIEWS:Q", title="Views Gained (Δviews)", format="+,"),
+                alt.Tooltip("VIEW_COUNT:Q", title="Total Views", format=","),
+                alt.Tooltip("HOURS_BETWEEN_SNAPSHOTS:Q", title="Interval Elapsed (hrs)", format=",.2f")
+            ]
         ).properties(
             height=320
         )
@@ -379,16 +404,27 @@ with tab2:
 
 with tab3:
     st.subheader("Raw Snapshot & Mart Data (Auditing Layer)")
+    st.caption("Live records from `RAW.FCT_VIDEO_VELOCITY` with standardized metrics.")
     
     if not velocity_df.empty:
         display_cols = [
             "VIDEO_TITLE", "VIEW_COUNT", "PREV_VIEW_COUNT", 
-            "DELTA_VIEWS", "HOURLY_VELOCITY", "VIDEO_AGE_HOURS", "EXTRACTED_AT"
+            "DELTA_VIEWS", "HOURS_BETWEEN_SNAPSHOTS", "HOURLY_VELOCITY", "VIDEO_AGE_HOURS", "EXTRACTED_AT"
         ]
         st.dataframe(
             velocity_df[display_cols].sort_values("EXTRACTED_AT", ascending=False),
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
+            column_config={
+                "VIDEO_TITLE": st.column_config.TextColumn("Video Title"),
+                "VIEW_COUNT": st.column_config.NumberColumn("Total Views", format="%d views"),
+                "PREV_VIEW_COUNT": st.column_config.NumberColumn("Prior Views", format="%d views"),
+                "DELTA_VIEWS": st.column_config.NumberColumn("Δ Views Gained", format="+%d views"),
+                "HOURS_BETWEEN_SNAPSHOTS": st.column_config.NumberColumn("Interval", format="%.2f hrs"),
+                "HOURLY_VELOCITY": st.column_config.NumberColumn("Hourly Velocity", format="%.1f views/hr"),
+                "VIDEO_AGE_HOURS": st.column_config.NumberColumn("Video Age", format="%d hrs"),
+                "EXTRACTED_AT": st.column_config.DatetimeColumn("Snapshot Time (UTC)", format="YYYY-MM-DD HH:mm:ss"),
+            }
         )
     else:
         st.write("No snapshot rows found.")
