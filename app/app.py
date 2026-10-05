@@ -205,12 +205,11 @@ with st.sidebar:
                 try:
                     info = add_channel_to_watchlist(clean_handle)
                     st.success(f"Added **{info['channel_title']}** to Watchlist!")
-                    # Ingest initial snapshot for the new creator
+                    # Ingest initial data for the new creator
                     fetch_youtube.run_fetch_pipeline(handle=clean_handle)
                     load_snowflake.run_load_pipeline()
                     
-                    # Run dbt to rebuild the analytics marts with the new creator
-                    with st.spinner("Rebuilding dbt marts..."):
+                    with st.spinner("Analyzing channel metrics..."):
                         import subprocess
                         dbt_bin = os.path.join(PROJECT_ROOT, ".venv", "bin", "dbt")
                         transform_dir = os.path.join(PROJECT_ROOT, "transform")
@@ -243,10 +242,10 @@ with st.sidebar:
         st.caption("No creators currently active.")
 
     st.markdown("---")
-    st.subheader("⚙️ Pipeline Controls")
+    st.subheader("⚙️ Live Sync")
     
-    if st.button("🚀 Take Snapshot Now", use_container_width=True, help="Scrapes fresh metrics from YouTube for all active creators, stages to Snowflake, and runs dbt."):
-        with st.spinner("1/2 Fetching fresh snapshots from YouTube..."):
+    if st.button("🚀 Check Live Stats Now", use_container_width=True, help="Fetches current views from YouTube for all active creators and updates growth rates."):
+        with st.spinner("1/2 Fetching latest stats from YouTube..."):
             try:
                 import subprocess
                 active_watchlist = get_watchlist(active_only=True)
@@ -255,7 +254,7 @@ with st.sidebar:
                     fetch_youtube.run_fetch_pipeline(handle=handle)
                     load_snowflake.run_load_pipeline()
 
-                with st.spinner("2/2 Rebuilding dbt models & velocity tables..."):
+                with st.spinner("2/2 Calculating growth rates & trends..."):
                     dbt_bin = os.path.join(PROJECT_ROOT, ".venv", "bin", "dbt")
                     transform_dir = os.path.join(PROJECT_ROOT, "transform")
                     subprocess.run(
@@ -265,13 +264,13 @@ with st.sidebar:
                         check=True
                     )
                 
-                st.success("🎉 New snapshot captured and velocity models updated!")
+                st.success("🎉 Latest stats and growth trends updated!")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as e:
-                st.error(f"Pipeline execution failed: {e}")
+                st.error(f"Sync failed: {e}")
 
-    if st.button("🔄 Refresh View Only", use_container_width=True, help="Re-queries Snowflake without scraping YouTube."):
+    if st.button("🔄 Refresh Display", use_container_width=True, help="Reloads cached dashboard metrics."):
         st.cache_data.clear()
         st.rerun()
         
@@ -318,7 +317,7 @@ with col2:
     st.metric(
         label="Audience Engagement",
         value=f"{engagement_rate:.2f}%" if pd.notnull(engagement_rate) else "0.00%",
-        help="Ratio of interactions: (Total Likes + Total Comments) / Total Views * 100"
+        help="Percentage of viewers who liked or commented: (Likes + Comments) ÷ Views."
     )
 
 with col3:
@@ -326,7 +325,7 @@ with col3:
     st.metric(
         label="Peak Velocity (views/hr)",
         value=vel_display,
-        help="Fastest hourly view gain recorded across snapshot intervals (Δviews / Δhours)."
+        help="Fastest view gain rate observed across recent tracking intervals."
     )
 
 with col4:
@@ -334,7 +333,7 @@ with col4:
     st.metric(
         label="Avg Velocity (views/hr)",
         value=avg_vel_display,
-        help="Average rate of view accumulation across all snapshot intervals (Δviews / Δhours)."
+        help="Average views gained per hour across all recent uploads."
     )
 
 with col5:
@@ -351,23 +350,23 @@ st.markdown("---")
 # ---------------------------------------------------------
 velocity_df = get_video_velocities(channel_id=channel_id)
 
-tab1, tab2, tab3 = st.tabs(["📈 Video Growth Curves", "⚡ Hourly Velocity Spikes", "🔍 Raw Data Explorer"])
+tab1, tab2, tab3 = st.tabs(["📈 View Growth", "⚡ Momentum & Spikes", "📋 Video Performance History"])
 
 with tab1:
-    st.subheader("Time-Series Video Growth Curves")
-    st.caption("Cumulative view count trajectory across consecutive snapshot intervals.")
+    st.subheader("Views Over Time")
+    st.caption("How total views have climbed across recent video uploads.")
     
     if not velocity_df.empty:
         chart = alt.Chart(velocity_df).mark_line(point=True).encode(
-            x=alt.X("EXTRACTED_AT:T", title="Snapshot Time (UTC)"),
-            y=alt.Y("VIEW_COUNT:Q", title="Total Views (cumulative)"),
+            x=alt.X("EXTRACTED_AT:T", title="Recorded Time (UTC)"),
+            y=alt.Y("VIEW_COUNT:Q", title="Total Views"),
             color=alt.Color("VIDEO_TITLE:N", legend=alt.Legend(title="Video Title", orient="bottom")),
             tooltip=[
                 alt.Tooltip("VIDEO_TITLE:N", title="Video"),
                 alt.Tooltip("VIEW_COUNT:Q", title="Total Views", format=","),
-                alt.Tooltip("DELTA_VIEWS:Q", title="Δ Views Gained", format="+,"),
-                alt.Tooltip("HOURLY_VELOCITY:Q", title="Hourly Velocity (views/hr)", format=",.1f"),
-                alt.Tooltip("EXTRACTED_AT:T", title="Snapshot Time (UTC)", format="%Y-%m-%d %H:%M")
+                alt.Tooltip("DELTA_VIEWS:Q", title="Views Gained", format="+,"),
+                alt.Tooltip("HOURLY_VELOCITY:Q", title="Views / Hour", format=",.1f"),
+                alt.Tooltip("EXTRACTED_AT:T", title="Recorded At (UTC)", format="%Y-%m-%d %H:%M")
             ]
         ).properties(
             height=420
@@ -375,11 +374,11 @@ with tab1:
         
         st.altair_chart(chart, use_container_width=True)
     else:
-        st.info("No velocity history available yet.")
+        st.info("No tracking history available yet.")
 
 with tab2:
-    st.subheader("Current Video Velocity (Views / Hour)")
-    st.caption("Real-time view accumulation rate (Δviews / Δhours) based on the latest snapshot interval.")
+    st.subheader("Current Video Momentum (Views / Hour)")
+    st.caption("How quickly each video is currently gaining views per hour.")
     
     # Filter to latest snapshot for each video to show current velocity
     latest_velocities = velocity_df.sort_values("EXTRACTED_AT").groupby("VIDEO_ID").last().reset_index()
@@ -387,26 +386,26 @@ with tab2:
     
     if not valid_velocities.empty:
         bar_chart = alt.Chart(valid_velocities).mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6).encode(
-            x=alt.X("HOURLY_VELOCITY:Q", title="Hourly Velocity (views / hour)"),
+            x=alt.X("HOURLY_VELOCITY:Q", title="Current Speed (views / hour)"),
             y=alt.Y("VIDEO_TITLE:N", sort="-x", title="Video Title"),
             color=alt.Color("HOURLY_VELOCITY:Q", scale=alt.Scale(scheme="goldorange"), legend=None),
             tooltip=[
                 alt.Tooltip("VIDEO_TITLE:N", title="Video"),
-                alt.Tooltip("HOURLY_VELOCITY:Q", title="Hourly Velocity (views/hr)", format=",.1f"),
-                alt.Tooltip("DELTA_VIEWS:Q", title="Views Gained (Δviews)", format="+,"),
+                alt.Tooltip("HOURLY_VELOCITY:Q", title="Current Speed (views/hr)", format=",.1f"),
+                alt.Tooltip("DELTA_VIEWS:Q", title="Views Gained", format="+,"),
                 alt.Tooltip("VIEW_COUNT:Q", title="Total Views", format=","),
-                alt.Tooltip("HOURS_BETWEEN_SNAPSHOTS:Q", title="Interval Elapsed (hrs)", format=",.2f")
+                alt.Tooltip("HOURS_BETWEEN_SNAPSHOTS:Q", title="Time Elapsed (hrs)", format=",.2f")
             ]
         ).properties(
             height=320
         )
         st.altair_chart(bar_chart, use_container_width=True)
     else:
-        st.info("Velocity requires at least 2 snapshot intervals to compute deltas. As snapshots accumulate, bars will render here automatically!")
+        st.info("Momentum requires at least two checks to calculate hourly speed. Once another check is recorded, momentum bars will appear here!")
 
 with tab3:
-    st.subheader("Raw Snapshot & Mart Data (Auditing Layer)")
-    st.caption("Live records from `RAW.FCT_VIDEO_VELOCITY` with standardized metrics.")
+    st.subheader("Video Performance History")
+    st.caption("Detailed view logs and hourly speed recorded for each video.")
     
     if not velocity_df.empty:
         display_cols = [
@@ -420,13 +419,13 @@ with tab3:
             column_config={
                 "VIDEO_TITLE": st.column_config.TextColumn("Video Title"),
                 "VIEW_COUNT": st.column_config.NumberColumn("Total Views", format="%d views"),
-                "PREV_VIEW_COUNT": st.column_config.NumberColumn("Prior Views", format="%d views"),
-                "DELTA_VIEWS": st.column_config.NumberColumn("Δ Views Gained", format="+%d views"),
-                "HOURS_BETWEEN_SNAPSHOTS": st.column_config.NumberColumn("Interval", format="%.2f hrs"),
-                "HOURLY_VELOCITY": st.column_config.NumberColumn("Hourly Velocity", format="%.1f views/hr"),
+                "PREV_VIEW_COUNT": st.column_config.NumberColumn("Previous Views", format="%d views"),
+                "DELTA_VIEWS": st.column_config.NumberColumn("Views Gained", format="+%d views"),
+                "HOURS_BETWEEN_SNAPSHOTS": st.column_config.NumberColumn("Time Elapsed", format="%.2f hrs"),
+                "HOURLY_VELOCITY": st.column_config.NumberColumn("Speed (views/hr)", format="%.1f"),
                 "VIDEO_AGE_HOURS": st.column_config.NumberColumn("Video Age", format="%d hrs"),
-                "EXTRACTED_AT": st.column_config.DatetimeColumn("Snapshot Time (UTC)", format="YYYY-MM-DD HH:mm:ss"),
+                "EXTRACTED_AT": st.column_config.DatetimeColumn("Recorded At", format="YYYY-MM-DD HH:mm:ss"),
             }
         )
     else:
-        st.write("No snapshot rows found.")
+        st.write("No video records found.")
